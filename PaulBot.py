@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 
-from random import randint
+from random import randint, random
 
 import pyodbc
 import os
@@ -76,13 +76,21 @@ async def get_balance(DiscordID) -> int:
     else:
         return None
 
+async def check_exists(DiscordID) -> bool:
+    _cursor = CNXN.cursor()
+    _cursor.execute(f"SELECT * FROM {TABLE} WHERE DiscordID = {DiscordID}")
+    _row = _cursor.fetchone()
+    if _row:
+        return True
+    else:
+        return False
 
 class BankDrop(discord.ui.Select):
     def __init__(self):
 
         options = [ 
             discord.SelectOption(label="Join", description="Add info to db...", ), 
-            discord.SelectOption(label="Roll dice", description="Roll the die..."),
+            # discord.SelectOption(label="Roll dice", description="Roll the die..."),
             discord.SelectOption(label="Add 100p", description="Add p"),
                 ]
         super().__init__(placeholder="Which action to perform?",options=options)
@@ -120,26 +128,59 @@ class BankDrop(discord.ui.Select):
             else:
                 await interaction.response.edit_message(content="Not Admin.",view=None)
             # _cursor.close()
-        else:
-            _roll = randint(0,5)
-            _prize = PRIZEPOOL["Dice01"][_roll]
-            _bal = await get_balance(interaction.user.id)
-            if _bal < 1:
-                await interaction.response.edit_message(content=f"You are broke or in debt, you can't do that! Balance: {_bal}",view=None)
-            else:
-                await add_balance(interaction.user.id, _prize)
-                
-                await interaction.response.edit_message(content=f"Rolled a {_roll+1}. Prize: {_prize}. Your new balance is {_bal+_prize}",view=None)
             
 
+class DiceRollButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__()
+        # self.value = None
+
+    @discord.ui.button(label="Reroll", style=discord.ButtonStyle.blurple, disabled=False, emoji="✖️")
+    async def callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        _roll = randint(0,5)
+        _prize = PRIZEPOOL["Dice01"][_roll]
+        _bal = await get_balance(interaction.user.id)
+        if _bal < 1:
+            await interaction.response.edit_message(content=f"You are broke or in debt, you can't do that! Balance: {_bal}",view=None)
+        else:
+            await add_balance(interaction.user.id, _prize)
+            
+            await interaction.response.edit_message(content=f"Rolled a {_roll+1}. Prize: {_prize}. Your new balance is {_bal+_prize}",view=None)
+
+
+        await interaction.response.edit_message(content="Cancelled", view=None)
+
 class DiceRollView(discord.ui.View):
+
+    rollBtn: DiceRollButton
+    
     def __init__(self):
         super().__init__()
         self.value = None
+        # self.add_item(DiceRollButton())
 
-    @discord.ui.button(label="Reroll", style=discord.ButtonStyle.blurple, row=1, disabled=False, emoji="✖️")
-    async def close_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Cancelled", view=DiceRollView)
+    @discord.ui.button(label="Roll", style=discord.ButtonStyle.blurple, row=3, disabled=False, emoji="🎲")
+    async def roll_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        _user_exists = await check_exists(interaction.user.id)
+        if _user_exists:
+            _bal = await get_balance(interaction.user.id)
+            if _bal < 1:
+                await interaction.response.edit_message(content=f"You are broke or in debt, you can't do that! Balance: {_bal}",view=None)
+                await interaction.channel.send(f"<@{interaction.user.id}> is broke or in debt! Their balance is: {await get_balance(interaction.user.id)}")
+            else:
+
+                if random() >0.98:
+                    await add_balance(interaction.user.id, 150)
+                    await interaction.response.edit_message(content=f"**BIG WIN!**. Prize: 150!!. Your new balance is {_bal+150}",view=DiceRollView())
+                    await interaction.channel.send(f"**<@{interaction.user.id}> WON BIG**! Prize: 150!! Their balance is: {await get_balance(interaction.user.id)}")
+                else:
+                    _roll = randint(0,5)
+                    _prize = PRIZEPOOL["Dice01"][_roll] 
+                    await add_balance(interaction.user.id, _prize)
+                    
+                    await interaction.response.edit_message(content=f"Rolled a {_roll+1}. Prize: {_prize}. Your new balance is {_bal+_prize}",view=DiceRollView())
+        else:
+            await interaction.response.send_message("Open account first! use `/bank`", view=None, ephemeral=True)
 
 
 class BankView(discord.ui.View):
@@ -152,8 +193,25 @@ class BankView(discord.ui.View):
         await interaction.response.edit_message(content="Cancelled", view=None)
 
 
-@bot.tree.command(name = "bank", description = "Perform ceremony")
+@bot.tree.command(name = "bank", description = "Bank Actions")
 async def bankcommand(interaction: discord.Interaction):
    await interaction.response.send_message("Welcome to PaulWorld, Pick an action", view=BankView(), ephemeral=True)
+
+@bot.tree.command(name = "roll", description = "Roll the Die")
+async def rollcommand(interaction: discord.Interaction):
+    _user_exists = await check_exists(interaction.user.id)
+    if _user_exists:
+        _bal = await get_balance(interaction.user.id)
+        if _bal < 1:
+            await interaction.response.send_message(f"You are broke or in debt, you can't do that! Balance: {_bal}")
+            await interaction.channel.send(f"<@{interaction.user.id}> is broke!")
+        else:
+            await interaction.response.send_message(f"BAL: {_bal} | Click to roll...", view=DiceRollView(), ephemeral=True)
+
+
+
+    
+   # await interaction.response.send_message("Test Roll", view=DiceRollView(), ephemeral=True)
+
 
 bot.run(TOKEN)
