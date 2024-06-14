@@ -1,5 +1,8 @@
+import datetime
 import discord
-from discord.ext import commands
+from discord.ext import tasks, commands
+
+
 
 from random import randint, random
 
@@ -23,36 +26,23 @@ DATABASE = os.getenv("DATABASE")
 
 GambleChannel: discord.TextChannel
 CHID: int = os.getenv("CHANNEL")
-TABLE ="dbo.TestUsers"
+TABLE = os.getenv("TABLE")
 
 PRIZEPOOL = {
-    "Dice01": [0, 15, -15, -30, -35, 50],
-    "BigWin": 0.995,
-    "BigAmt": 125
+    "Dice01": [0, 15, -10, -30, -35, 50],
+    "Dice02": [0, -2, 7, -10, -15, 20],
+    "BigWin01": 0.9975,
+    "BigWin02": 0.9925,
+    "BigAmt01": 125,
+    "BigAmt02": 50
 }
 
 driver = "{ODBC Driver 18 for SQL Server}"
-
 CONSTR = f'DRIVER={driver};SERVER={SERVER};DATABASE={DATABASE};Trusted_Connection=yes;Encrypt=no;'
-
 CNXN = pyodbc.connect(CONSTR)
-# cursor = CNXN.cursor()
 
-
-def connectServer() -> pyodbc.Connection:
-    # _cnx = pyodbc.connect(CONSTR)
-    print(f"connected to {DATABASE}")
-    # return _cnx
-
-async def startup() -> None:
+async def startup():
     await bot.wait_until_ready()
-    GambleChannel = (bot.get_channel(CHID) or await bot.fetch_channel(CHID))
-    await GambleChannel.send("Logged in.")
-
-@bot.event
-async def on_ready():
-    _synched = await bot.tree.sync()
-    # CNXN = connectServer()
     _cursor = CNXN.cursor()
     _cursor.execute(f"SELECT * FROM {TABLE} WHERE DiscordID = 295773280684605442")
     row = _cursor.fetchone()
@@ -61,12 +51,32 @@ async def on_ready():
     _cursor.execute(f"UPDATE {TABLE} SET Admin = 1 WHERE DiscordID = 295773280684605442")
     CNXN.commit()
     _cursor.close()
+    # GambleChannel = (bot.get_channel(CHID) or await bot.fetch_channel(CHID))
+    await GambleChannel.send("Locked in. 🤫")
+
+@bot.event
+async def on_ready():
+    _synched = await bot.tree.sync()
     await startup()
+    ubi.start()
     print(f'We have logged in as {bot.user}')
 
-async def add_balance(DiscordID, AddBalance):
+ubitime = datetime.time(hour=16, minute=0,tzinfo=datetime.timezone.utc)
+
+@tasks.loop(time=ubitime)
+async def ubi():
+    _cursor = CNXN.cursor()
+    _cursor.execute(f"UPDATE {TABLE} SET Wallet = Wallet + 100")
+    CNXN.commit()
+    _cursor.close()
+    print("Added 100 to everyones acct.")
+    GambleChannel = (bot.get_channel(CHID) or await bot.fetch_channel(CHID))
+    await GambleChannel.send("@here *Daily uwubucks have arrived!* 100 fresh smackaroos, spend it wisely!")
+
+async def add_balance(DiscordID, AddBalance, addPlay=False):
     _cursor = CNXN.cursor()
     _cursor.execute(f"UPDATE {TABLE} SET Wallet += {AddBalance} WHERE DiscordID = {DiscordID}")
+    if addPlay == True: _cursor.execute(f"UPDATE {TABLE} SET Plays += 1 WHERE DiscordID = {DiscordID}")
     CNXN.commit()
 
 async def set_balance(DiscordID, NewBalance):
@@ -74,7 +84,7 @@ async def set_balance(DiscordID, NewBalance):
     _cursor.execute(f"UPDATE {TABLE} SET Wallet = {NewBalance} WHERE DiscordID = {DiscordID}")
     CNXN.commit()
 
-async def get_balance(DiscordID) -> int:
+async def get_balance(DiscordID) -> int | None:
     _cursor = CNXN.cursor()
     _cursor.execute(f"SELECT Wallet FROM {TABLE} WHERE DiscordID = {DiscordID}")
     _wallet = _cursor.fetchone()
@@ -150,7 +160,16 @@ class BankDrop(discord.ui.Select):
             else:
                 await interaction.response.edit_message(content="Not Admin.",view=None)
             # _cursor.close()
-            
+
+class DiceRollButton(discord.ui.Button):
+    def __init__(self, text:str):
+        super().__init__()
+        # self.value = None
+
+    @discord.ui.button(label=f"Roll", style=discord.ButtonStyle.blurple, disabled=False, emoji="✖️")
+    async def callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        _roll = randint(0,5)
+
 class DiceRollView(discord.ui.View):    
     def __init__(self):
         super().__init__()
@@ -165,20 +184,18 @@ class DiceRollView(discord.ui.View):
                 await interaction.response.edit_message(content=f"You are broke or in debt, you can't do that! Balance: {_bal}",view=None)
                 await interaction.channel.send(f"<@{interaction.user.id}> is broke or in debt! Their balance is: {await get_balance(interaction.user.id)}")
             else:
-
-                if random() > PRIZEPOOL["BigWin"]:
-                    await add_balance(interaction.user.id, PRIZEPOOL['BigAmt'])
-                    await interaction.response.edit_message(content=f"**BIG WIN!**. Prize: {PRIZEPOOL['BigAmt']}!!. Your new balance is {_bal+PRIZEPOOL['BigAmt']}",view=DiceRollView())
-                    await interaction.channel.send(f"**<@{interaction.user.id}>** WON **BIG**! Prize: *{PRIZEPOOL['BigAmt']}*!! Their balance is: {await get_balance(interaction.user.id)}")
+                if random() > PRIZEPOOL["BigWin01"]:
+                    await add_balance(interaction.user.id, PRIZEPOOL['BigAmt01'], True)
+                    await interaction.response.edit_message(content=f"**BIG WIN!**. Prize: {PRIZEPOOL['BigAmt01']}!!. Your new balance is {_bal+PRIZEPOOL['BigAmt01']}",view=DiceRollView())
+                    await interaction.channel.send(f"**<@{interaction.user.id}>** WON **BIG**! Prize: *{PRIZEPOOL['BigAmt01']}*!! Their balance is: {await get_balance(interaction.user.id)}")
                 else:
                     _roll = randint(0,5)
                     _prize = PRIZEPOOL["Dice01"][_roll] 
-                    await add_balance(interaction.user.id, _prize)
+                    await add_balance(interaction.user.id, _prize, True)
                     
                     await interaction.response.edit_message(content=f"Rolled a {_roll+1}. Prize: {_prize}. Your new balance is {_bal+_prize}", view=DiceRollView())
         else:
             await interaction.response.send_message("Open account first! use `/bank`", view=None, ephemeral=True)
-
 
 class BankView(discord.ui.View):
     def __init__(self):
@@ -223,7 +240,8 @@ async def addbal(interaction, member:discord.Member, amount:int, public:bool = F
                 await add_balance(member.id, amount)
                 print(interaction.user.name, "added", amount, "money to", member.name)
                 await interaction.response.send_message(content="Added money.", ephemeral=True)
-                await interaction.channel.send(f"<@{member.id}> was bailed out, *they were given {amount} money!* **Shame them!**")
+                if public: 
+                    await interaction.channel.send(f"<@{member.id}> was bailed out, *they were given {amount} money!* **Shame them!**")
             else:
                 await interaction.response.send_message(content="Not Admin.", ephemeral=True)
         else:
@@ -231,7 +249,7 @@ async def addbal(interaction, member:discord.Member, amount:int, public:bool = F
 
 @bot.tree.command(name="getbal", description="Get Balance")
 @discord.app_commands.describe(member="User to check")
-async def addbal(interaction, member:discord.Member):
+async def getbal(interaction, member:discord.Member):
     _admin = await check_admin(interaction.user.id)
     if (_admin) or (interaction.user.id == member.id):
         if member.bot:
@@ -270,7 +288,6 @@ async def send(interaction, member:discord.Member, amount:int):
         else:
             await interaction.response.send_message(f"Invalid recipient!", ephemeral=True)
 
-
 @bot.tree.command(name="leaderboard", description="Top 5")
 async def lbcommand(interaction: discord.Interaction):
     _cursor = CNXN.cursor()
@@ -280,5 +297,17 @@ async def lbcommand(interaction: discord.Interaction):
     print("leaderboard:", leaderboard)
     
     await interaction.response.send_message(leaderboard)
+    
+
+@bot.tree.command(name="loserboard", description="Bottom 5")
+async def lbcommand(interaction: discord.Interaction):
+    _cursor = CNXN.cursor()
+    _cursor.execute(f"SELECT Username, Wallet from {TABLE} ORDER BY Wallet ASC OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY")
+    loserboard = [row.Username for row in _cursor.fetchall()]
+
+    print("loserboard:", loserboard)
+    
+    await interaction.response.send_message("loserboard:" + str(loserboard))
+    
 
 bot.run(TOKEN)
