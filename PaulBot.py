@@ -32,14 +32,18 @@ PRIZEPOOL = {
     "Hi": {
         "Dice": [0, -10, 15, -30, -35, 50],
         "BigWin": 0.9975,
-        "BigAmt01": 125
+        "BigAmt": 125
     },
     "Lo": {
         "Dice": [0, -2, 5, -7, -9, 10],
         "BigWin": 0.9925,
         "BigAmt": 50
+    },
+    "RPS": {
+        "Win": 5,
+        "Tie": 0,
+        "Lose": -5
     }
-
 }
 
 driver = "{ODBC Driver 18 for SQL Server}"
@@ -170,7 +174,7 @@ class BankDrop(discord.ui.Select):
 
 class DiceRollButton(discord.ui.Button):
     def __init__(self, odds:str):
-        super().__init__(label=f"Roll {odds}", style=discord.ButtonStyle.blurple, disabled=False, emoji="✖️")
+        super().__init__(label=f"Roll {odds} Stakes", style=discord.ButtonStyle.blurple, disabled=False, emoji="❗" if odds == "Lo" else "‼️")
         self.odds = odds
 
     async def callback(self, interaction: discord.Interaction):
@@ -200,6 +204,67 @@ class DiceRollView(discord.ui.View):
         self.add_item(DiceRollButton("Hi"))
         self.add_item(DiceRollButton("Lo"))
 
+class RpsButton(discord.ui.Button):
+    def __init__(self, pick: int):
+        super().__init__(label=f"Pick {['Rock', 'Paper', 'Scissors'][pick]}", style=discord.ButtonStyle.blurple, disabled=False, emoji=["🗿","📜","✂️"][pick])
+        self.pick = ["Rock", "Paper", "Scissors"][pick]
+
+    async def callback(self, interaction: discord.Interaction):
+            _bal = await get_balance(interaction.user.id)
+            if _bal < 5:
+                await interaction.response.edit_message(content=f"You need at least 5 money to play, you can't do that! Balance: {_bal}",view=None)
+                await interaction.channel.send(f"<@{interaction.user.id}> is broke or in debt! Their balance is: {await get_balance(interaction.user.id)}")
+            else:
+                # main game logic
+                _cost = 5 
+                botChoice = ["Rock", "Paper", "Scissors"][randint(0,2)]
+
+                if self.pick == botChoice:
+                    _prize = PRIZEPOOL["RPS"]["Tie"]
+                    await add_balance(interaction.user.id, _prize, True)
+                    await interaction.response.edit_message(content=f"Both players selected {self.pick}. It's a tie!. Prize: {_prize + _cost}. Your new balance is {_bal+_prize}", view=RpsView())
+                    # print(f"Both players selected {self.pick}. It's a tie!")
+                elif self.pick == "Rock":
+                    if botChoice == "Scissors":
+                        _prize = PRIZEPOOL["RPS"]["Win"]
+                        await add_balance(interaction.user.id, _prize, True)
+                        await interaction.response.edit_message(content=f"Rock smashes Scissors! You win!. Prize: {_prize + _cost}. Your new balance is {_bal+_prize}", view=RpsView())
+                        # print("Rock smashes Scissors! You win!")
+                    else:
+                        _prize = PRIZEPOOL["RPS"]["Lose"]
+                        await add_balance(interaction.user.id, _prize, True)
+                        await interaction.response.edit_message(content=f"Paper covers Rock! You lose. Prize: {_prize + _cost}. Your new balance is {_bal+_prize}", view=RpsView())
+                        # print("Paper covers Rock! You lose.")
+                elif self.pick == "Paper":
+                    if botChoice == "Rock":
+                        _prize = PRIZEPOOL["RPS"]["Win"]
+                        await add_balance(interaction.user.id, _prize, True)
+                        await interaction.response.edit_message(content=f"Paper covers Rock! You win!. Prize: {_prize + _cost}. Your new balance is {_bal+_prize}", view=RpsView())
+                        # print("Paper covers Rock! You win!")
+                    else:
+                        _prize = PRIZEPOOL["RPS"]["Lose"]
+                        await add_balance(interaction.user.id, _prize, True)
+                        await interaction.response.edit_message(content=f"Scissors cuts Paper! You lose. Prize: {_prize + _cost}. Your new balance is {_bal+_prize}", view=RpsView())
+                        # print("Scissors cuts Paper! You lose.")
+                elif self.pick == "Scissors":
+                    if botChoice == "Paper":
+                        _prize = PRIZEPOOL["RPS"]["Win"]
+                        await add_balance(interaction.user.id, _prize, True)
+                        await interaction.response.edit_message(content=f"Scissors cuts Paper! You win!. Prize: {_prize + _cost}. Your new balance is {_bal+_prize}", view=RpsView())
+                        # print("Scissors cuts Paper! You win!")
+                    else:
+                        _prize = PRIZEPOOL["RPS"]["Lose"]
+                        await add_balance(interaction.user.id, _prize, True)
+                        await interaction.response.edit_message(content=f"Rock smashes Scissors! You lose. Prize: {_prize + _cost}. Your new balance is {_bal+_prize}", view=RpsView())
+                        # print("Rock smashes Scissors! You lose.")
+
+
+class RpsView(discord.ui.View):    
+    def __init__(self):
+        super().__init__()
+        self.add_item(RpsButton(0))
+        self.add_item(RpsButton(1))
+        self.add_item(RpsButton(2))
 
 class BankView(discord.ui.View):
     def __init__(self):
@@ -231,8 +296,25 @@ async def rollcommand(interaction: discord.Interaction):
         else:
             await interaction.response.send_message(f"You need an account!, you can't do that! try `/bank`", ephemeral=True)
 
+
+@bot.tree.command(name = "rockpaperscissors", description = "Play Rock, Paper, Scissors(Cost:5)")
+async def rpscommand(interaction: discord.Interaction):
+    if (await check_channel(interaction)) == False:
+        await interaction.response.send_message(f"Wrong Channel!", ephemeral=True)
+    else:
+        _user_exists = await check_exists(interaction.user.id)
+        if _user_exists:
+            _bal = await get_balance(interaction.user.id)
+            if _bal < 5:
+                await interaction.response.send_message(f"You are broke or in debt, you can't do that! Balance: {_bal}", ephemeral=True)
+                await interaction.channel.send(f"<@{interaction.user.id}> is broke!")
+            else:
+                await interaction.response.send_message(f"COST: 5 | BAL: {_bal} | Click to play...", view=RpsView(), ephemeral=True)
+        else:
+            await interaction.response.send_message(f"You need an account!, you can't do that! try `/bank`", ephemeral=True)
+
 @bot.tree.command(name="addbal", description="Add money to acct")
-@discord.app_commands.describe(member="To send to", amount="amount to add", public="Show shame?")
+@discord.app_commands.describe(member="To add to", amount="amount to add", public="Show shame?")
 async def addbal(interaction, member:discord.Member, amount:int, public:bool = False):
     if member.bot:
         await interaction.response.send_message(f"Invalid recipient!", ephemeral=True)
@@ -253,7 +335,8 @@ async def addbal(interaction, member:discord.Member, amount:int, public:bool = F
 
 @bot.tree.command(name="getbal", description="Get Balance")
 @discord.app_commands.describe(member="User to check")
-async def getbal(interaction, member:discord.Member):
+async def getbal(interaction, member:discord.Member = None):
+    if member == None: member = interaction.user
     _admin = await check_admin(interaction.user.id)
     if (_admin) or (interaction.user.id == member.id):
         if member.bot:
