@@ -29,12 +29,17 @@ CHID: int = os.getenv("CHANNEL")
 TABLE = os.getenv("TABLE")
 
 PRIZEPOOL = {
-    "Dice01": [0, 15, -10, -30, -35, 50],
-    "Dice02": [0, -2, 7, -10, -15, 20],
-    "BigWin01": 0.9975,
-    "BigWin02": 0.9925,
-    "BigAmt01": 125,
-    "BigAmt02": 50
+    "Hi": {
+        "Dice": [0, -10, 15, -30, -35, 50],
+        "BigWin": 0.9975,
+        "BigAmt01": 125
+    },
+    "Lo": {
+        "Dice": [0, -2, 5, -7, -9, 10],
+        "BigWin": 0.9925,
+        "BigAmt": 50
+    }
+
 }
 
 driver = "{ODBC Driver 18 for SQL Server}"
@@ -52,7 +57,7 @@ async def startup():
     CNXN.commit()
     _cursor.close()
     # GambleChannel = (bot.get_channel(CHID) or await bot.fetch_channel(CHID))
-    await GambleChannel.send("Locked in. 🤫")
+    # await GambleChannel.send("Locked in. 🤫")
 
 @bot.event
 async def on_ready():
@@ -117,7 +122,9 @@ async def check_channel(interaction: discord.Interaction) -> bool:
     else:
         #print("chid", interaction.channel.id)
         return True
-    
+
+
+
 class BankDrop(discord.ui.Select):
     def __init__(self):
         options = [ 
@@ -162,21 +169,11 @@ class BankDrop(discord.ui.Select):
             # _cursor.close()
 
 class DiceRollButton(discord.ui.Button):
-    def __init__(self, text:str):
-        super().__init__()
-        # self.value = None
+    def __init__(self, odds:str):
+        super().__init__(label=f"Roll {odds}", style=discord.ButtonStyle.blurple, disabled=False, emoji="✖️")
+        self.odds = odds
 
-    @discord.ui.button(label=f"Roll", style=discord.ButtonStyle.blurple, disabled=False, emoji="✖️")
-    async def callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        _roll = randint(0,5)
-
-class DiceRollView(discord.ui.View):    
-    def __init__(self):
-        super().__init__()
-        self.value = None
-
-    @discord.ui.button(label="Roll", style=discord.ButtonStyle.blurple, disabled=False, emoji="🎲")
-    async def callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
         _user_exists = await check_exists(interaction.user.id)
         if _user_exists:
             _bal = await get_balance(interaction.user.id)
@@ -184,18 +181,25 @@ class DiceRollView(discord.ui.View):
                 await interaction.response.edit_message(content=f"You are broke or in debt, you can't do that! Balance: {_bal}",view=None)
                 await interaction.channel.send(f"<@{interaction.user.id}> is broke or in debt! Their balance is: {await get_balance(interaction.user.id)}")
             else:
-                if random() > PRIZEPOOL["BigWin01"]:
-                    await add_balance(interaction.user.id, PRIZEPOOL['BigAmt01'], True)
-                    await interaction.response.edit_message(content=f"**BIG WIN!**. Prize: {PRIZEPOOL['BigAmt01']}!!. Your new balance is {_bal+PRIZEPOOL['BigAmt01']}",view=DiceRollView())
-                    await interaction.channel.send(f"**<@{interaction.user.id}>** WON **BIG**! Prize: *{PRIZEPOOL['BigAmt01']}*!! Their balance is: {await get_balance(interaction.user.id)}")
+                if random() > PRIZEPOOL[self.odds]["BigWin"]:
+                    await add_balance(interaction.user.id, PRIZEPOOL[self.odds]['BigAmt'], True)
+                    await interaction.response.edit_message(content=f"**BIG WIN!**. Prize: {PRIZEPOOL[self.odds]['BigAmt']}!!. Your new balance is {_bal+PRIZEPOOL[self.odds]['BigAmt']}",view=DiceRollView())
+                    await interaction.channel.send(f"**<@{interaction.user.id}>** WON **BIG**! Prize: *{PRIZEPOOL[self.odds]['BigAmt']}*!! Their balance is: {await get_balance(interaction.user.id)}")
                 else:
                     _roll = randint(0,5)
-                    _prize = PRIZEPOOL["Dice01"][_roll] 
+                    _prize = PRIZEPOOL[self.odds]["Dice"][_roll] 
                     await add_balance(interaction.user.id, _prize, True)
                     
                     await interaction.response.edit_message(content=f"Rolled a {_roll+1}. Prize: {_prize}. Your new balance is {_bal+_prize}", view=DiceRollView())
         else:
             await interaction.response.send_message("Open account first! use `/bank`", view=None, ephemeral=True)
+
+class DiceRollView(discord.ui.View):    
+    def __init__(self):
+        super().__init__()
+        self.add_item(DiceRollButton("Hi"))
+        self.add_item(DiceRollButton("Lo"))
+
 
 class BankView(discord.ui.View):
     def __init__(self):
