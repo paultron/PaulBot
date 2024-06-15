@@ -11,9 +11,6 @@ import os
 from dotenv import load_dotenv, dotenv_values 
 
 intents = discord.Intents.default()
-intents.message_content = True
-intents.emojis_and_stickers = True
-intents.all
 bot = commands.Bot(command_prefix="!", intents=intents.all())
 
 
@@ -76,7 +73,7 @@ ubitime = datetime.time(hour=16, minute=0,tzinfo=datetime.timezone.utc)
 @tasks.loop(time=ubitime)
 async def ubi():
     _cursor = CNXN.cursor()
-    _cursor.execute(f"UPDATE {TABLE} SET Wallet = Wallet + 100")
+    _cursor.execute(f"UPDATE {TABLE} SET Wallet += 100")
     CNXN.commit()
     _cursor.close()
     print("Added 100 to everyones acct.")
@@ -85,25 +82,25 @@ async def ubi():
 
 async def add_balance(DiscordID, AddBalance, addPlay=False):
     _cursor = CNXN.cursor()
-    _cursor.execute(f"UPDATE {TABLE} SET Wallet += {AddBalance} WHERE DiscordID = {DiscordID}")
-    if addPlay == True: _cursor.execute(f"UPDATE {TABLE} SET Plays += 1 WHERE DiscordID = {DiscordID}")
+    _cursor.execute(f"UPDATE {TABLE} SET Wallet += ? WHERE DiscordID = ?", AddBalance, DiscordID)
+    if addPlay == True: _cursor.execute(f"UPDATE {TABLE} SET Plays += 1 WHERE DiscordID = ?", DiscordID)
     CNXN.commit()
 
 async def transfer_balance(IDto, amt, IDfrom = -1, addPlay = False):
     _cursor = CNXN.cursor()
-    _cursor.execute(f"UPDATE {TABLE} SET Wallet -= {amt} WHERE DiscordID = {IDfrom}")
-    _cursor.execute(f"UPDATE {TABLE} SET Wallet += {amt} WHERE DiscordID = {IDto}")
-    if addPlay == True: _cursor.execute(f"UPDATE {TABLE} SET Plays += 1 WHERE DiscordID = {IDto}")
+    _cursor.execute(f"UPDATE {TABLE} SET Wallet -= ? WHERE DiscordID = ?", amt, IDfrom)
+    _cursor.execute(f"UPDATE {TABLE} SET Wallet += ? WHERE DiscordID = ?", amt, IDto)
+    if addPlay == True: _cursor.execute(f"UPDATE {TABLE} SET Plays += 1 WHERE DiscordID = ?", IDto)
     CNXN.commit()
 
 async def set_balance(DiscordID, NewBalance):
     _cursor = CNXN.cursor()
-    _cursor.execute(f"UPDATE {TABLE} SET Wallet = {NewBalance} WHERE DiscordID = {DiscordID}")
+    _cursor.execute(f"UPDATE {TABLE} SET Wallet = ? WHERE DiscordID = ?", NewBalance, DiscordID)
     CNXN.commit()
 
 async def get_balance(DiscordID) -> int | None:
     _cursor = CNXN.cursor()
-    _cursor.execute(f"SELECT Wallet FROM {TABLE} WHERE DiscordID = {DiscordID}")
+    _cursor.execute(f"SELECT Wallet FROM {TABLE} WHERE DiscordID = ?", DiscordID)
     _wallet = _cursor.fetchone()
     if _wallet:
         return _wallet.Wallet
@@ -112,7 +109,7 @@ async def get_balance(DiscordID) -> int | None:
 
 async def check_admin(DiscordID) -> bool:
     _cursor = CNXN.cursor()
-    _cursor.execute(f"SELECT * FROM {TABLE} WHERE DiscordID = {DiscordID} AND Admin = 1")
+    _cursor.execute(f"SELECT * FROM {TABLE} WHERE DiscordID = ? AND Admin = 1", DiscordID)
     _row = _cursor.fetchone()
     if _row:
         return True
@@ -121,7 +118,7 @@ async def check_admin(DiscordID) -> bool:
 
 async def check_exists(DiscordID) -> bool:
     _cursor = CNXN.cursor()
-    _cursor.execute(f"SELECT * FROM {TABLE} WHERE DiscordID = {DiscordID}")
+    _cursor.execute(f"SELECT * FROM {TABLE} WHERE DiscordID = ?", DiscordID)
     _row = _cursor.fetchone()
     if _row:
         return True
