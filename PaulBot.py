@@ -2,21 +2,17 @@ import datetime
 import discord
 from discord.ext import tasks, commands
 
-import re, string
-
 from random import randint, random
 
 import pyodbc
 import os
-from dotenv import load_dotenv, dotenv_values 
+from dotenv import load_dotenv
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents.all())
 
-
 # loading variables from .env file
 load_dotenv() 
-
 
 TOKEN = os.getenv("TOKEN")
 SERVER = os.getenv("SERVER")
@@ -44,6 +40,37 @@ PRIZEPOOL = {
     }
 }
 
+RouletteBtns = [
+    #[Row, "Label", "Emoji", style, Payout, [nums]]
+    [0,"1","",discord.ButtonStyle.red, 11, [1]],
+    [0,"2","",discord.ButtonStyle.blurple, 11, [2]],
+    [0,"3","",discord.ButtonStyle.red, 11, [3]],
+    [0,"Odd","",discord.ButtonStyle.secondary, 1, [1,3,5,7,9,11]],
+    [0,"Red","",discord.ButtonStyle.red, 1, [1,3,5,8,10,12]],
+
+    [1,"4","",discord.ButtonStyle.blurple, 11, [4]],
+    [1,"5","",discord.ButtonStyle.red, 11,[5]],
+    [1,"6","",discord.ButtonStyle.blurple, 11, [6]],
+    [1,"1-6","",discord.ButtonStyle.secondary, 1, [1,2,3,4,5,6]],
+    [1,"Blue","",discord.ButtonStyle.blurple, 1, [2,4,6,7,9,11]],
+
+    [2,"7","",discord.ButtonStyle.blurple, 11, [7]],
+    [2,"8","",discord.ButtonStyle.red, 11, [8]],
+    [2,"9","",discord.ButtonStyle.blurple, 11, [9]],
+    [2,"7-12","",discord.ButtonStyle.secondary, 1, [7, 8, 9, 10, 11, 12]],
+
+    [3,"10","",discord.ButtonStyle.red, 11, [10]],
+    [3,"11","",discord.ButtonStyle.blurple, 11, [11]],
+    [3,"12","",discord.ButtonStyle.red, 11, [12]],
+    [3,"Even","",discord.ButtonStyle.secondary, 2, [2,4,6,8,10,12]],
+
+    [4,"1,4,7,10","",discord.ButtonStyle.secondary, 2, [1,4,7,10]],
+    [4,"2,5,8,11","",discord.ButtonStyle.secondary, 2, [2,5,8,11]],
+    [4,"3,6,9,12","",discord.ButtonStyle.secondary, 2, [3,6,9,12]],
+    [4,"0","",discord.ButtonStyle.green, 11, [0]],
+
+]
+
 driver = "{ODBC Driver 18 for SQL Server}"
 CONSTR = f'DRIVER={driver};SERVER={SERVER};DATABASE={DATABASE};Trusted_Connection=yes;Encrypt=no;'
 CNXN = pyodbc.connect(CONSTR)
@@ -68,7 +95,7 @@ async def on_ready():
     ubi.start()
     print(f'We have logged in as {bot.user}')
 
-ubitime = datetime.time(hour=16, minute=0,tzinfo=datetime.timezone.utc)
+ubitime = datetime.time(hour=16, minute=0, tzinfo=datetime.timezone.utc)
 
 @tasks.loop(time=ubitime)
 async def ubi():
@@ -79,6 +106,18 @@ async def ubi():
     print("Added 100 to everyones acct.")
     GambleChannel = (bot.get_channel(CHID) or await bot.fetch_channel(CHID))
     await GambleChannel.send("@here *Daily uwubucks have arrived!* 100 fresh smackaroos, spend it wisely!")
+
+async def create_account(DiscordID, Username, Wallet = 100):
+    _cursor = CNXN.cursor()
+    _cursor.execute(f"INSERT INTO {TABLE} (DiscordID, Username, Wallet) VALUES (?, ?, ?) GO", DiscordID, Username, Wallet)
+    CNXN.commit()
+    print(f"Inserted values into {TABLE}: {Username}, Wallet: {Wallet}, ID: {DiscordID}")
+
+async def remove_account(DiscordID):
+    _cursor = CNXN.cursor()
+    _cursor.execute(f"DELETE FROM {TABLE} WHERE DiscordID = ? GO", DiscordID)
+    CNXN.commit()
+    print(f"Removed user from {TABLE}: {DiscordID}")
 
 async def add_balance(DiscordID, AddBalance, addPlay=False):
     _cursor = CNXN.cursor()
@@ -132,50 +171,12 @@ async def check_channel(interaction: discord.Interaction) -> bool:
         #print("chid", interaction.channel.id)
         return True
 
-
-
-class BankDrop(discord.ui.Select):
+# Dice elements
+class DiceRollView(discord.ui.View):    
     def __init__(self):
-        options = [ 
-            discord.SelectOption(label="Join", description="Create wallet...", ), 
-            # discord.SelectOption(label="Roll dice", description="Roll the die..."),
-            discord.SelectOption(label="Add 100 money", description="Add money"),
-                ]
-        super().__init__(placeholder="Which action to perform?", options=options)
-
-    async def callback(self, interaction):
-        _cursor = CNXN.cursor()
-
-        if self.values[0] == "Join":
-
-            _cursor.execute(f"SELECT * from {TABLE} WHERE DiscordID = {interaction.user.id}")
-
-            _exists = _cursor.fetchone()
-
-            if _exists:
-                print(interaction.user.name, "joined already!")
-                await interaction.response.edit_message(content="Already Joined! Try rolling",view=DiceRollView())
-            else:
-
-                
-                _cursor.execute(f"INSERT INTO {TABLE}(DiscordID, Username) VALUES (?,?)",[interaction.user.id,interaction.user.name])
-                await interaction.user.send("You have joined the cult. Here is free money")
-                await set_balance(interaction.user.id, 100)
-                CNXN.commit()
-                print("username:", interaction.user.name, "joined, user id:", interaction.user.id)
-                await interaction.response.edit_message(content="You Have Joined! We have given you 100 units. Click to roll!",view=DiceRollView())
-            _cursor.close()
-        elif self.values[0] == "Add 100 money":
-            _cursor.execute(f"SELECT * from {TABLE} WHERE Admin = 1 AND DiscordID = {interaction.user.id}")
-
-            _exists = _cursor.fetchone()
-            if _exists:
-                await add_balance(interaction.user.id, 100)
-                await interaction.response.edit_message(content="Added money.",view=None)
-            else:
-                await interaction.response.edit_message(content="Not Admin.",view=None)
-            # _cursor.close()
-
+        super().__init__()
+        self.add_item(DiceRollButton("Hi"))
+        self.add_item(DiceRollButton("Lo"))
 
 class DiceRollButton(discord.ui.Button):
     def __init__(self, odds:str):
@@ -204,88 +205,36 @@ class DiceRollButton(discord.ui.Button):
         else:
             await interaction.response.send_message("Open account first! use `/bank`", view=None, ephemeral=True)
 
-class DiceRollView(discord.ui.View):    
+# Bet selecting element
+class BetDropdown(discord.ui.Select):
+    def __init__(self, text = "", result:discord.ui.View = None):
+        super().__init__(placeholder="How much to bet?", options=[discord.SelectOption(label=str(b)) for b in [1,5,10,50,100,250,500,1000]])
+        self.text = text
+        self.resultView = result
+
+    async def callback(self, interaction):
+        if (await get_balance(interaction.user.id) < int(self.values[0]) ):
+            await interaction.response.edit_message(content=f"Cant bet {self.values[0]}, Not enough! {self.text}", view=None)
+        else:
+            await interaction.response.edit_message(content=f"You are betting {self.values[0]}, good luck! {self.text}", view=self.resultView(bet=int(self.values[0])))
+
+# Roulette elements
+class RouletteBetView(discord.ui.View):
     def __init__(self):
-        super().__init__()
-        self.add_item(DiceRollButton("Hi"))
-        self.add_item(DiceRollButton("Lo"))
+        super().__init__(timeout=None)       
+        self.add_item(BetDropdown(result=RouletteView,text="\n**Payouts**\n`Straight up: 11 to 1 | Column: 2 to 1`\n`Odd/Even/1-6/7-12/Red/Blue: 1 to 1`"))
 
-class RpsButton(discord.ui.Button):
-    def __init__(self, pick: int):
-        super().__init__(label=f"Pick {['Rock', 'Paper', 'Scissors'][pick]}", style=discord.ButtonStyle.blurple, disabled=False, emoji=["🗿","📜","✂️"][pick])
-        self.pick = ["Rock", "Paper", "Scissors"][pick]
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red, row=1, disabled=False, emoji="✖️")
+    async def close_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Cancelled", view=None)
 
-    async def callback(self, interaction: discord.Interaction):
-            _bal = await get_balance(interaction.user.id)
-            _cost = 5
-            if _bal < _cost:
-                await interaction.response.edit_message(content=f"You need at least {_cost} money to play, you can't do that! Balance: {_bal}",view=None)
-                await interaction.channel.send(f"<@{interaction.user.id}> is broke or in debt! Their balance is: {_bal}")
-            else:
-                # main game logic 
-                botChoice = ["Rock", "Paper", "Scissors"][randint(0,2)]
-                _prize = 0
-                _result = ""
-                if self.pick == botChoice:
-                    _prize = PRIZEPOOL["RPS"]["Tie"]
-                    _result = f"Both players selected {self.pick}. It's a tie!"
-                elif self.pick == "Rock":
-                    if botChoice == "Scissors":
-                        _prize = PRIZEPOOL["RPS"]["Win"]
-                        _result = "Rock smashes Scissors! You **win**!"
-                    else:
-                        _prize = PRIZEPOOL["RPS"]["Lose"]
-                        _result = "Paper covers Rock! You lose."
-                elif self.pick == "Paper":
-                    if botChoice == "Rock":
-                        _prize = PRIZEPOOL["RPS"]["Win"]
-                        _result = "Paper covers Rock! You **win**!"
-                    else:
-                        _prize = PRIZEPOOL["RPS"]["Lose"]
-                        _result = "Scissors cuts Paper! You lose."
-                elif self.pick == "Scissors":
-                    if botChoice == "Paper":
-                        _prize = PRIZEPOOL["RPS"]["Win"]
-                        _result = "Scissors cuts Paper! You **win**!"
-                    else:
-                        _prize = PRIZEPOOL["RPS"]["Lose"]
-                        _result = "Rock smashes Scissors! You lose."
-
-                # await add_balance(interaction.user.id, _prize, True)
-                if _prize != 0: # dont transfer 0
-                    await transfer_balance(interaction.user.id, _prize, -1, True)
-                await interaction.response.edit_message(content=f"The bot chose: {botChoice}. {_result}\nPrize: {_prize + _cost}. Your new balance is {_bal + _prize}\nCost to play: {_cost}", view=RpsView())
-
-RouletteBtns = [
-    # ["Row", "Label", "Emoji", "style", Payout, nums]
-    [0,"1","",discord.ButtonStyle.red, 11, [1]],
-    [0,"2","",discord.ButtonStyle.blurple, 11, [2]],
-    [0,"3","",discord.ButtonStyle.red, 11, [3]],
-    [0,"Odd","",discord.ButtonStyle.secondary, 1, [1,3,5,7,9,11]],
-    [0,"Red","",discord.ButtonStyle.red, 1, [1,3,5,8,10,12]],
-
-    [1,"4","",discord.ButtonStyle.blurple, 11, [4]],
-    [1,"5","",discord.ButtonStyle.red, 11,[5]],
-    [1,"6","",discord.ButtonStyle.blurple, 11, [6]],
-    [1,"1-6","",discord.ButtonStyle.secondary, 1, [1,2,3,4,5,6]],
-    [1,"Blue","",discord.ButtonStyle.blurple, 1, [2,4,6,7,9,11]],
-
-    [2,"7","",discord.ButtonStyle.blurple, 11, [7]],
-    [2,"8","",discord.ButtonStyle.red, 11, [8]],
-    [2,"9","",discord.ButtonStyle.blurple, 11, [9]],
-    [2,"7-12","",discord.ButtonStyle.secondary, 1, [7, 8, 9, 10, 11, 12]],
-
-    [3,"10","",discord.ButtonStyle.red, 11, [10]],
-    [3,"11","",discord.ButtonStyle.blurple, 11, [11]],
-    [3,"12","",discord.ButtonStyle.red, 11, [12]],
-    [3,"Even","",discord.ButtonStyle.secondary, 2, [2,4,6,8,10,12]],
-
-    [4,"1,4,7,10","",discord.ButtonStyle.secondary, 2, [1,4,7,10]],
-    [4,"2,5,8,11","",discord.ButtonStyle.secondary, 2, [2,5,8,11]],
-    [4,"3,6,9,12","",discord.ButtonStyle.secondary, 2, [3,6,9,12]],
-    [4,"0","",discord.ButtonStyle.green, 11, [0]],
-
-]
+class RouletteView(discord.ui.View):
+    def __init__(self, *, timeout: float | None = 180, bet = 10):
+        super().__init__(timeout=timeout)
+        # bet=10
+        for _btn in RouletteBtns:
+            _emo = None if _btn[2] == "" else _btn[2]
+            self.add_item(RouletteButton(_row=_btn[0],_label=_btn[1],_emoji=_emo,_style=_btn[3],_nums=_btn[5],_bet=bet, _payout=_btn[4]))
 
 class RouletteButton(discord.ui.Button):
     def __init__(self, *, _label, _style, _emoji, _row, _nums, _bet, _payout):
@@ -302,51 +251,83 @@ class RouletteButton(discord.ui.Button):
             return
         _roll = randint(0,12)
 
-        _color = "🟥" if _roll in [1,3,5,8,10,12] else "🟩" if _roll == 0 else "🟦"
-        # if _roll == 0: _color = "🟩"
+        _color = "🟩" if _roll == 0 else "🟥" if _roll in [1,3,5,8,10,12] else "🟦"
 
         if _roll in self.nums:
             # win
             _prize = (self.bet * self.payout) 
             await transfer_balance(interaction.user.id, _prize - self.bet)
             await interaction.response.edit_message(content=f"Betting {self.bet} on {self.pick}.\nThe roll was {_roll} {_color}\n*You won {_prize}!*\nBAL: {_bal+_prize}", view=RouletteBetView())
-            if self.payout == 11: await interaction.channel.send(f"**<@{interaction.user.id}>** WON **BIG** on roulette! Prize: *{_prize}*!!")
+            if self.payout == 11: await interaction.channel.send(f"**<@{interaction.user.id}>** WON **BIG** on roulette by betting {self.bet} on {self.pick} {_color}! Prize: *{_prize}*!!")
         else:
             await transfer_balance(interaction.user.id, -self.bet)
             await interaction.response.edit_message(content=f"Betting {self.bet} on {self.pick}.\nThe roll was {_roll} {_color}\nYou didn't win.\nBAL: {_bal-self.bet}", view=RouletteBetView())
 
-class RouletteView(discord.ui.View):
-    def __init__(self, *, timeout: float | None = 180, bet = 10):
-        super().__init__(timeout=timeout)
-        # bet=10
-        for _btn in RouletteBtns:
-            _emo = None if _btn[2] == "" else _btn[2]
-            self.add_item(RouletteButton(_row=_btn[0],_label=_btn[1],_emoji=_emo,_style=_btn[3],_nums=_btn[5],_bet=bet, _payout=_btn[4]))
-
-class RouletteBetDropdown(discord.ui.Select):
-    def __init__(self):
-        super().__init__(placeholder="How much to bet?", options=[discord.SelectOption(label=str(b)) for b in [1,5,10,100,1000]])
-
-    async def callback(self, interaction):
-        await interaction.response.edit_message(content=f"You are betting {self.values[0]}, good luck!\n**Payouts**\n`Straight up: 11 to 1 | Column: 2 to 1`\n`Odd/Even/1-6/7-12/Red/Blue: 1 to 1`", view=RouletteView(bet=int(self.values[0])))
-
-class RouletteBetView(discord.ui.View):
+# Rock paper scissors elements
+class RpsBetView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)       
-        self.add_item(RouletteBetDropdown())
+        self.add_item(BetDropdown(result=RpsView,text="\nChoose Rock, Paper, or Scissors!"))
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red, row=1, disabled=False, emoji="✖️")
     async def close_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="Cancelled", view=None)
 
-
 class RpsView(discord.ui.View):    
-    def __init__(self):
+    def __init__(self, bet: int = 10):
         super().__init__()
-        self.add_item(RpsButton(0))
-        self.add_item(RpsButton(1))
-        self.add_item(RpsButton(2))
+        self.add_item(RpsButton(0, bet=bet))
+        self.add_item(RpsButton(1, bet=bet))
+        self.add_item(RpsButton(2, bet=bet))
 
+class RpsButton(discord.ui.Button):
+    def __init__(self, pick: int, bet: int = 10):
+        super().__init__(label=f"Pick {['Rock', 'Paper', 'Scissors'][pick]}", style=discord.ButtonStyle.blurple, disabled=False, emoji=["🗿","📜","✂️"][pick])
+        self.pick = ["Rock", "Paper", "Scissors"][pick]
+        self.bet = bet
+
+    async def callback(self, interaction: discord.Interaction):
+            _bal = await get_balance(interaction.user.id)
+            # self.bet = 5
+            if _bal < self.bet:
+                await interaction.response.edit_message(content=f"Cant afford to bet {self.bet}, you can't do that! Balance: {_bal}",view=None)
+                await interaction.channel.send(f"<@{interaction.user.id}> is broke or in debt! Their balance is: {_bal}")
+            else:
+                # main game logic 
+                botChoice = ["Rock", "Paper", "Scissors"][randint(0,2)]
+                _prize = 0
+                _result = ""
+                if self.pick == botChoice:
+                    _prize = 0
+                    _result = f"Both players selected {self.pick}. It's a tie!"
+                elif self.pick == "Rock":
+                    if botChoice == "Scissors":
+                        _prize = self.bet
+                        _result = "Rock smashes Scissors! You **win**!"
+                    else:
+                        _prize = -self.bet
+                        _result = "Paper covers Rock! You lose."
+                elif self.pick == "Paper":
+                    if botChoice == "Rock":
+                        _prize = self.bet
+                        _result = "Paper covers Rock! You **win**!"
+                    else:
+                        _prize = -self.bet
+                        _result = "Scissors cuts Paper! You lose."
+                elif self.pick == "Scissors":
+                    if botChoice == "Paper":
+                        _prize = self.bet
+                        _result = "Scissors cuts Paper! You **win**!"
+                    else:
+                        _prize = -self.bet
+                        _result = "Rock smashes Scissors! You lose."
+
+                # await add_balance(interaction.user.id, _prize, True)
+                if _prize != 0: # dont transfer 0
+                    await transfer_balance(interaction.user.id, _prize, -1, True)
+                await interaction.response.edit_message(content=f"The bot chose: {botChoice}. {_result}\nPrize: {_prize + self.bet}. Your new balance is {_bal + _prize}\nCurrent bet amount: {self.bet}", view=RpsView(bet=self.bet))
+
+# Bank action elements
 class BankView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)       
@@ -356,10 +337,53 @@ class BankView(discord.ui.View):
     async def close_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="Cancelled", view=None)
 
+class BankDrop(discord.ui.Select):
+    def __init__(self):
+        options = [ 
+            # discord.SelectOption(label="Join", description="Create wallet...", ), 
+            # discord.SelectOption(label="Roll dice", description="Roll the die..."),
+            discord.SelectOption(label="Add 100 money", description="Add money"),
+                ]
+        super().__init__(placeholder="Which action to perform?", options=options)
+
+    async def callback(self, interaction):
+        _cursor = CNXN.cursor()
+        if self.values[0] == "Add 100 money":
+            _cursor.execute(f"SELECT * from {TABLE} WHERE Admin = 1 AND DiscordID = {interaction.user.id}")
+            _exists = _cursor.fetchone()
+            if _exists:
+                await add_balance(interaction.user.id, 100)
+                await interaction.response.edit_message(content="Added money.",view=None)
+            else:
+                await interaction.response.edit_message(content="Not Admin.",view=None)
+            # _cursor.close()
+
+# Join view element
+class JoinView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=30)
+    
+    @discord.ui.button(label="Join!", style=discord.ButtonStyle.green, disabled=False, emoji="✔️")
+    async def join_callback(self, interaction: discord.Interaction, button):
+        if (await check_exists(interaction.user.id)):
+            print(interaction.user.name, "joined already!")
+            await interaction.response.edit_message(content="Already Joined! Try rolling the dice!", view=DiceRollView())
+        else:
+            await create_account(interaction.user.id, interaction.user.name)
+            await interaction.user.send("You have joined the cult. Here is free money!\n**Balance: 100**")
+            await interaction.response.edit_message(content="Joined, Try rolling the dice!", view=DiceRollView())
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red, disabled=False, emoji="✖️")
+    async def close_callback(self, interaction: discord.Interaction, button):
+        await interaction.response.edit_message(content="Cancelled", view=None)
+
+@bot.tree.command(name="join", description="Join the fun!")
+async def joincommand(interaction: discord.Interaction):
+    await interaction.response.send_message("Click to join!", view=JoinView(), ephemeral=True)
 
 @bot.tree.command(name = "bank", description = "Bank Actions")
 async def bankcommand(interaction: discord.Interaction):
-   await interaction.response.send_message("Welcome to PaulWorld, Pick an action", view=BankView(), ephemeral=True)
+   await interaction.response.send_message("Welcome to the bank, Pick an action", view=BankView(), ephemeral=True)
 
 @bot.tree.command(name = "roulette", description = "Play Roulette!")
 async def roulettecommand(interaction: discord.Interaction):
@@ -384,8 +408,7 @@ async def rollcommand(interaction: discord.Interaction):
         else:
             await interaction.response.send_message(f"You need an account!, you can't do that! try `/bank`", ephemeral=True)
 
-
-@bot.tree.command(name = "rockpaperscissors", description = "Play Rock, Paper, Scissors(Cost:5)")
+@bot.tree.command(name = "rockpaperscissors", description = "Play Rock, Paper, Scissors")
 async def rpscommand(interaction: discord.Interaction):
     if (await check_channel(interaction)) == False:
         await interaction.response.send_message(f"Wrong Channel!", ephemeral=True)
@@ -393,11 +416,11 @@ async def rpscommand(interaction: discord.Interaction):
         _user_exists = await check_exists(interaction.user.id)
         if _user_exists:
             _bal = await get_balance(interaction.user.id)
-            if _bal < 5:
+            if _bal < 1:
                 await interaction.response.send_message(f"You are broke or in debt, you can't do that! Balance: {_bal}", ephemeral=True)
                 await interaction.channel.send(f"<@{interaction.user.id}> is broke!")
             else:
-                await interaction.response.send_message(f"COST: 5 | BAL: {_bal} | Click to play...", view=RpsView(), ephemeral=True)
+                await interaction.response.send_message(f"BAL: {_bal} | Click to choose bet...", view=RpsBetView(), ephemeral=True)
         else:
             await interaction.response.send_message(f"You need an account!, you can't do that! try `/bank`", ephemeral=True)
 
@@ -411,7 +434,7 @@ async def addbal(interaction, member:discord.Member, amount:int, public:bool = F
         if _user_exists:
             _admin = await check_admin(interaction.user.id)
             if (_admin):
-                await add_balance(member.id, amount)
+                await transfer_balance(member.id, amount)
                 print(interaction.user.name, "added", amount, "money to", member.name)
                 await interaction.response.send_message(content="Added money.", ephemeral=True)
                 if public: 
@@ -438,8 +461,8 @@ async def getbal(interaction, member:discord.Member = None):
     else:
         await interaction.response.send_message(content="Not Admin or self..", ephemeral=True)
 
-@bot.tree.command(name = "send", description = "send money")
-@discord.app_commands.describe(member="To send to", amount="amount to send")
+@bot.tree.command(name = "send", description = "Send money")
+@discord.app_commands.describe(member="To send to", amount="Amount to send")
 async def send(interaction, member:discord.Member, amount:int):
     if member.bot or(member.id == interaction.user.id):
         await interaction.response.send_message(f"Invalid recipient!", ephemeral=True)
@@ -474,7 +497,6 @@ async def lbcommand(interaction: discord.Interaction):
     
     await interaction.response.send_message(leaderboard)
     
-
 @bot.tree.command(name="loserboard", description="Bottom 5")
 async def lbcommand(interaction: discord.Interaction):
     _cursor = CNXN.cursor()
@@ -485,7 +507,6 @@ async def lbcommand(interaction: discord.Interaction):
     
     await interaction.response.send_message("loserboard:" + str(loserboard))
     
-
 @bot.tree.command(name="saythis", description="Say something")
 @discord.app_commands.describe(thingtosay="Thing to say")
 async def saythiscommand(interaction: discord.Interaction, thingtosay:str):
@@ -517,7 +538,6 @@ async def addemojicommand(interaction: discord.Interaction, newemoji:str, pictur
     else:
         await interaction.response.send_message("Need admin privileges or enough to afford!",ephemeral=True)
         print(interaction.user.name, "tried to use /addemoji with '", newemoji, "'")
-
 
 
 bot.run(TOKEN)
